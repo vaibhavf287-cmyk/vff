@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Minecraft WN: Mountain & Body Fix</title>
+    <title>Minecraft WN: Mic & Voice Update</title>
     <style>
         body { margin: 0; overflow: hidden; background: #87CEEB; touch-action: none; font-family: 'Arial', sans-serif; user-select: none; }
         #ui { position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
@@ -15,7 +15,7 @@
         #mp-overlay { position: absolute; top: 70px; left: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 10px; color: #fff; pointer-events: auto; display: none; width: 200px; z-index: 20; }
         
         input { width: 100%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; }
-        .menu-btn { background: #3498db; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; font-weight: bold; }
+        .menu-btn { background: #3498db; color: white; border: none; padding: 10px; width: 100%; border-radius: 5px; font-weight: bold; margin-top: 5px; }
 
         #hotbar { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 5px; pointer-events: auto; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 10px; }
         .slot { width: 45px; height: 45px; border: 2px solid #555; background: #8b8b8b; display: flex; align-items: center; justify-content: center; font-size: 10px; color: white; }
@@ -27,6 +27,8 @@
         .actions { position: absolute; bottom: 40px; right: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; pointer-events: auto; }
         .btn { width: 70px; height: 70px; border-radius: 50%; border: 2px solid #fff; color: white; background: rgba(0,0,0,0.4); font-weight: bold; }
         .crosshair { position: absolute; top: 50%; left: 50%; width: 15px; height: 15px; border: 1px solid white; transform: translate(-50%, -50%); pointer-events: none; }
+        
+        #mic-status { color: #2ecc71; font-size: 12px; margin-top: 5px; display: none; }
     </style>
 </head>
 <body>
@@ -40,6 +42,7 @@
                 <option value="female">Female</option>
             </select>
             <button class="menu-btn" onclick="startGame()">START WORLD</button>
+            <div id="mic-status">Mic Active!</div>
         </div>
     </div>
 
@@ -73,9 +76,16 @@
         let scene, camera, renderer, peer, conns = [], remotePlayers = {};
         let blocks = [], chunks = {};
         let lon = 0, lat = 0, moveX = 0, moveZ = 0, joyId = null, rotId = null, lastX, lastY;
+        let myStream = null;
         const myWN = Math.floor(100000 + Math.random() * 900000).toString();
 
-        function startGame() {
+        async function startGame() {
+            try {
+                myStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                document.getElementById('mic-status').style.display = 'block';
+            } catch(e) {
+                console.log("Mic permission denied");
+            }
             myName = document.getElementById('username').value || "vff";
             mySkin = document.getElementById('skin-select').value;
             document.getElementById('setup-screen').style.display = 'none';
@@ -98,18 +108,30 @@
 
             peer = new Peer("WN-" + myWN);
             peer.on('open', id => document.getElementById('my-wn').innerText = myWN);
+            
+            // Handle incoming calls (Voice)
+            peer.on('call', call => {
+                call.answer(myStream);
+                call.on('stream', stream => playStream(stream));
+            });
+
             peer.on('connection', c => setupConn(c));
 
             camera.position.set(0, 15, 0);
             loop();
         }
 
+        function playStream(stream) {
+            const audio = document.createElement('audio');
+            audio.srcObject = stream;
+            audio.play();
+        }
+
         const materials = {
             grass: new THREE.MeshLambertMaterial({color: 0x567d46}),
             stone: new THREE.MeshLambertMaterial({color: 0x808080}),
             wood: new THREE.MeshLambertMaterial({color: 0x5d4037}),
-            leaf: new THREE.MeshLambertMaterial({color: 0x2e7d32}),
-            water: new THREE.MeshLambertMaterial({color: 0x3498db, transparent: true, opacity: 0.7})
+            leaf: new THREE.MeshLambertMaterial({color: 0x2e7d32})
         };
 
         function createCharacter(data) {
@@ -117,7 +139,6 @@
             const skinTone = 0xffdbac;
             const clothes = data.skin === 'male' ? 0x2a5298 : 0x2ecc71;
 
-            // HEAD & FACE
             const headGrp = new THREE.Group();
             const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshLambertMaterial({color: skinTone}));
             const eyeGeo = new THREE.BoxGeometry(0.06, 0.06, 0.02);
@@ -129,28 +150,24 @@
             headGrp.add(head, e1, e2, lip);
             headGrp.position.y = 1.4;
 
-            // BODY
             const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.25), new THREE.MeshLambertMaterial({color: clothes}));
             body.position.y = 0.85;
 
-            // ARMS (L & R)
             const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
             const armMat = new THREE.MeshLambertMaterial({color: skinTone});
             const armL = new THREE.Mesh(armGeo, armMat); armL.position.set(-0.35, 0.85, 0);
             const armR = new THREE.Mesh(armGeo, armMat); armR.position.set(0.35, 0.85, 0);
 
-            // LEGS (L & R)
             const legGeo = new THREE.BoxGeometry(0.22, 0.5, 0.22);
             const legMat = new THREE.MeshLambertMaterial({color: 0x333333});
             const legL = new THREE.Mesh(legGeo, legMat); legL.position.set(-0.12, 0.25, 0);
             const legR = new THREE.Mesh(legGeo, legMat); legR.position.set(0.12, 0.25, 0);
 
-            // NAME TAG
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             canvas.width = 128; canvas.height = 32;
             ctx.fillStyle = 'white'; ctx.font = '20px Arial'; ctx.textAlign = 'center';
-            ctx.fillText(data.name, 64, 24);
+            ctx.fillText(data.name || "Guest", 64, 24);
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(canvas)}));
             sprite.position.y = 2.0; sprite.scale.set(1, 0.25, 1);
 
@@ -163,12 +180,10 @@
             let k = `${cx},${cz}`; if(chunks[k]) return; chunks[k] = true;
             for(let x=0; x<8; x++) for(let z=0; z<8; z++) {
                 let wx = cx*8+x, wz = cz*8+z;
-                // MOUNTAIN GENERATION (SINE WAVES)
                 let h = Math.floor(Math.sin(wx*0.1)*3 + Math.cos(wz*0.1)*3);
                 for(let y=-3; y<=h; y++) {
                     addBlock(wx, y, wz, y===h ? 'grass' : 'stone', false);
                 }
-                // TREES
                 if(Math.random() > 0.98) {
                     for(let th=1; th<=3; th++) addBlock(wx, h+th, wz, 'wood', false);
                     addBlock(wx, h+4, wz, 'leaf', false);
@@ -200,7 +215,21 @@
         }
 
         function setupConn(conn) {
+            conn.on('open', () => {
+                if(!conns.find(c => c.peer === conn.peer)) conns.push(conn);
+                conn.send({type:'hello', id:peer.id, name:myName, skin:mySkin});
+                // Call friend for voice
+                if(myStream) peer.call(conn.peer, myStream);
+            });
             conn.on('data', d => {
+                if(d.type === 'hello') {
+                    if(!remotePlayers[d.id]) remotePlayers[d.id] = createCharacter(d);
+                    conn.send({type:'hello-back', id:peer.id, name:myName, skin:mySkin});
+                    if(myStream) peer.call(conn.peer, myStream);
+                }
+                if(d.type === 'hello-back') {
+                    if(!remotePlayers[d.id]) remotePlayers[d.id] = createCharacter(d);
+                }
                 if(d.type === 'move') {
                     if(!remotePlayers[d.id]) remotePlayers[d.id] = createCharacter(d);
                     remotePlayers[d.id].group.position.set(d.x, d.y, d.z);
@@ -209,17 +238,21 @@
                 }
                 if(d.type === 'place') addBlock(d.x, d.y, d.z, d.mat, false);
                 if(d.type === 'break') {
-                    const target = blocks.find(b => b.position.x===d.x && b.position.y===d.y && b.position.z===d.z);
+                    const target = blocks.find(b => Math.abs(b.position.x-d.x)<0.1 && Math.abs(b.position.y-d.y)<0.1 && Math.abs(b.position.z-d.z)<0.1);
                     if(target) { scene.remove(target); blocks = blocks.filter(b => b !== target); }
                 }
             });
-            conns.push(conn);
+            conn.on('close', () => {
+                let pid = conn.peer.replace("WN-", "");
+                if(remotePlayers[pid]) { scene.remove(remotePlayers[pid].group); delete remotePlayers[pid]; }
+                conns = conns.filter(c => c.peer !== conn.peer);
+            });
         }
 
         window.addEventListener('touchstart', e => {
             for(let t of e.changedTouches) {
                 if(t.clientX < window.innerWidth/2) joyId = t.identifier;
-                else if(!t.target.closest('button')) { rotId = t.identifier; lastX = t.clientX; lastY = t.clientY; }
+                else if(!t.target.closest('button') && !t.target.closest('.slot')) { rotId = t.identifier; lastX = t.clientX; lastY = t.clientY; }
             }
         });
         window.addEventListener('touchmove', e => {
